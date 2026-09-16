@@ -79,8 +79,8 @@ jobs:
             exit 0
           fi
           echo "status=success" >> "$GITHUB_OUTPUT"
-          git config --local user.name "actions"
-          git config --local user.email "action@github.com"
+          git config --local user.name "dongone105"
+          git config --local user.email "dongwen-hu@foxmail.com"
           git add -- "${assets[@]}"
           git commit -m "Update rules: $(TZ=UTC-8 date +"%Y-%m-%d %H:%M")" -- "${assets[@]}"
 
