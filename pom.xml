@@ -15,7 +15,7 @@
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
         <spring-boot.version>2.7.0</spring-boot.version>
         <hutool.version>5.8.0</hutool.version>
-        <dnsjava.version>3.6.1</dnsjava.version>
+        <dnsjava.version>3.6.5</dnsjava.version>
     </properties>
 
     <dependencies>
@@ -24,7 +24,7 @@
             <artifactId>spring-boot-starter</artifactId>
         </dependency>
 
-        <!-- 用于指定上游 DNS 服务器进行域名解析校验，替代 java.net.InetAddress（只能走系统默认 resolver） -->
+        <!-- 用于指定上游 DNS 服务器做域名有效性校验，替代只能走系统默认 resolver 的 java.net.InetAddress -->
         <dependency>
             <groupId>dnsjava</groupId>
             <artifactId>dnsjava</artifactId>
