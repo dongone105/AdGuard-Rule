@@ -70,6 +70,22 @@ application:
     #本地规则
     local: #本地规则请将文件移动到项目路径rule目录中
       - 'mylist.txt'
+  #DNS 域名有效性校验：对 DNS_FILTER（||domain^ 形式的拦截规则）中的域名做真实 DNS 解析，
+  #剔除已经无法解析（域名失效/过期/已注销）的规则；国内、国外各配置几组 DNS 交叉验证，
+  #任意一台能解析出结果即视为有效，全部失败才剔除
+  dns:
+    enabled: true
+    timeout: 3          #单次查询超时(秒)
+    retries: 1           #单台DNS查询失败重试次数
+    threads: 64           #校验并发线程数
+    max-failure-ratio: 0.3 #整体失败率超过该阈值时，判定DNS环境异常，本次跳过剔除
+    servers:
+      - '223.5.5.5'       #阿里DNS
+      - '119.29.29.29'    #DNSPod
+      - '114.114.114.114' #114DNS
+      - '8.8.8.8'         #Google
+      - '1.1.1.1'         #Cloudflare
+      - '9.9.9.9'         #Quad9
   output:
     path: rule   #规则文件输出路径，相对路径默认从 项目目录开始
     files:
@@ -92,3 +108,4 @@ application:
         - DNS_FILTER
       modify.txt:
         - MODIFY
+        
