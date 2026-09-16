@@ -15,12 +15,20 @@
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
         <spring-boot.version>2.7.0</spring-boot.version>
         <hutool.version>5.8.0</hutool.version>
+        <dnsjava.version>3.6.1</dnsjava.version>
     </properties>
 
     <dependencies>
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter</artifactId>
+        </dependency>
+
+        <!-- 用于指定上游 DNS 服务器进行域名解析校验，替代 java.net.InetAddress（只能走系统默认 resolver） -->
+        <dependency>
+            <groupId>dnsjava</groupId>
+            <artifactId>dnsjava</artifactId>
+            <version>${dnsjava.version}</version>
         </dependency>
 
         <dependency>
