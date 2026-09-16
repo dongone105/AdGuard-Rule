@@ -10,6 +10,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Predicate;
 
 public final class RuleAggregator {
 
@@ -52,5 +53,23 @@ public final class RuleAggregator {
 
     public List<String> getSources() {
         return new ArrayList<>(sources);
+    }
+
+    /**
+     * 获取指定类型下已去重的规则原文（去重键）集合，用于外部做进一步校验（如 DNS 有效性）
+     */
+    public Set<String> keys(RuleType type) {
+        Map<String, String> typedRules = rules.get(type);
+        return typedRules == null ? new LinkedHashSet<>() : new LinkedHashSet<>(typedRules.keySet());
+    }
+
+    /**
+     * 从指定类型中剔除满足条件的规则（按去重键匹配）
+     */
+    public void removeIf(RuleType type, Predicate<String> shouldRemove) {
+        Map<String, String> typedRules = rules.get(type);
+        if (typedRules != null) {
+            typedRules.keySet().removeIf(shouldRemove);
+        }
     }
 }
