@@ -109,7 +109,7 @@ public class AdgRuleApplication implements ApplicationRunner {
         if (dnsConfig.isEnabled()) {
             TimeInterval dnsInterval = DateUtil.timer();
             DnsRuleFilter.apply(aggregator, dnsConfig);
-            log.info("DNS 校验耗时 {} ms", dnsInterval.intervalMs());
+            log.info("DNS 校验阶段总耗时 {} ms", dnsInterval.intervalMs());
         }
 
         RuleOutputWriter.write(outputPath, outputConfig.getFiles(), aggregator);
@@ -175,4 +175,3 @@ public class AdgRuleApplication implements ApplicationRunner {
         SpringApplication.run(AdgRuleApplication.class, args);
     }
 }
-
