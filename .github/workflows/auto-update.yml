@@ -38,6 +38,7 @@ jobs:
         run: mvn -B package
 
       - name: Run Jar
+        ulimit -n 65536
         run:  java -jar ./target/adg-rule-1.0.0.jar
 
       - name: Commit Changes
