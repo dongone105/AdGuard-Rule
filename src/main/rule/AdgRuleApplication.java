@@ -6,6 +6,7 @@ import cn.hutool.core.io.FileUtil;
 import cn.hutool.core.util.StrUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.fordes.adg.rule.config.DnsConfig;
 import org.fordes.adg.rule.config.OutputConfig;
 import org.fordes.adg.rule.config.RuleConfig;
 import org.fordes.adg.rule.thread.AbstractRuleThread;
@@ -41,6 +42,8 @@ public class AdgRuleApplication implements ApplicationRunner {
     private final RuleConfig ruleConfig;
 
     private final OutputConfig outputConfig;
+
+    private final DnsConfig dnsConfig;
 
     @Override
     public void run(ApplicationArguments args) throws Exception {
@@ -101,6 +104,12 @@ public class AdgRuleApplication implements ApplicationRunner {
             }
         } finally {
             executor.shutdownNow();
+        }
+
+        if (dnsConfig.isEnabled()) {
+            TimeInterval dnsInterval = DateUtil.timer();
+            DnsRuleFilter.apply(aggregator, dnsConfig);
+            log.info("DNS 校验耗时 {} ms", dnsInterval.intervalMs());
         }
 
         RuleOutputWriter.write(outputPath, outputConfig.getFiles(), aggregator);
@@ -166,3 +175,4 @@ public class AdgRuleApplication implements ApplicationRunner {
         SpringApplication.run(AdgRuleApplication.class, args);
     }
 }
+
