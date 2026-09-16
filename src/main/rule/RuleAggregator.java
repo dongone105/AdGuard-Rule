@@ -64,7 +64,7 @@ public final class RuleAggregator {
     }
 
     /**
-     * 从指定类型中剔除满足条件的规则（按去重键匹配）
+     * 从指定类型中批量剔除满足条件的规则（按去重键匹配）
      */
     public void removeIf(RuleType type, Predicate<String> shouldRemove) {
         Map<String, String> typedRules = rules.get(type);
