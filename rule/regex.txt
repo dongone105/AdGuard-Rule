@@ -1,5 +1,5 @@
 # Title: AdGuard、AdGuardHome广告过滤规则合并/去重 - regex.txt
-# Update time: 2026-09-16 11:23:15
+# Update time: 2026-09-16 16:26:31
 # Expires: 12 hours
 # Repo URL:: https://github.com/hululu1068/AdGuard-Rule
 
@@ -123,3 +123,20 @@
 /^supersonicads\./
 /^wlmonitor\./
 /^zjtoolbar\./
+/pangolin.*\.com/
+/pangolin.*\.net/
+/webcast.*\.douyin\.com/
+/live.*\.douyin\.com/
+/webcast.*\.bytegecko\.com/
+/webcast.*\.amemv\.com/
+/p[0-9]+-be-pack-sign\.byteimg\.com/
+/sf[0-9]+-ttcdn-tos\.pstatp\.com/
+/mon[0-9]+.*\.fqnovel\.com/
+/.*novelapp\.fqnovelvod\.com/
+/.*ad-sign.*\.byteimg\.com/
+/.*ad-sign.*\.tiktokcdn\.com/
+/.*ad-sign.*\.douyincdn\.com/
+/.*\.yingt\.fun/
+/.*\.hnzkclouds\.com/
+/scontent-[a-z]{3}[0-9]+.*\.fbcdn\.net/
+/external.*\.fbcdn\.net/
