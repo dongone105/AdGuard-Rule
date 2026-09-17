@@ -34,27 +34,27 @@ jobs:
           distribution: 'temurin'
           cache: maven
 
-      - name: Setup SmartDNS
+      - name: Diagnose SmartDNS
         run: |
-          set -e
-          ASSET_URL=$(curl -s https://api.github.com/repos/pymumu/smartdns/releases/latest \
-            | grep browser_download_url \
-            | grep 'x86_64-linux-all.tar.gz' \
-            | cut -d '"' -f 4)
-          echo "downloading: $ASSET_URL"
-          curl -fL "$ASSET_URL" -o smartdns.tar.gz
-          tar zxf smartdns.tar.gz
-          cd smartdns
-          chmod +x ./install
-          sudo ./install -i || true
-          cd ..
-          sudo systemctl stop smartdns || true
-          sudo cp -f smartdns.conf /etc/smartdns/smartdns.conf
+          echo "===== 1. 测试到各上游 853 端口(DoT)的 TCP 连通性 ====="
+          for ip in 8.8.8.8 9.9.9.11 223.5.5.5 1.12.12.12 101.226.4.6; do
+            echo "--- $ip:853 ---"
+            timeout 3 bash -c "cat < /dev/null > /dev/tcp/$ip/853" && echo "TCP 连通" || echo "TCP 连接失败/超时"
+          done
+
+          echo "===== 2. 打开 smartdns debug 日志，重启 ====="
+          sudo sed -i '1i log-level debug\nlog-num 2\nlog-console yes' /etc/smartdns/smartdns.conf
           sudo systemctl restart smartdns
           sleep 2
-          sudo systemctl status smartdns --no-pager
-          dig @127.0.0.1 -p 5053 www.baidu.com +short || (echo "smartdns 未生效，打印日志排查：" && sudo journalctl -xeu smartdns --no-pager -n 100 && exit 1)
-          rm -rf smartdns smartdns.tar.gz
+
+          echo "===== 3. 用几个必然存活的知名域名测试解析 ====="
+          for domain in www.google.com www.baidu.com www.qq.com www.taobao.com github.com; do
+            echo "--- $domain ---"
+            dig @127.0.0.1 -p 5053 "$domain" +short +time=5
+          done
+
+          echo "===== 4. smartdns 内部日志（看真实报错） ====="
+          sudo tail -n 200 /var/log/smartdns/smartdns.log
           
       - name: Build with Maven
         run: mvn -B package
