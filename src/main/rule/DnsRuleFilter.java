@@ -105,6 +105,10 @@ public final class DnsRuleFilter {
      * 校验一批域名。底层是异步非阻塞查询，不再需要线程池；
      * 但仍然按 {@code maxConcurrentQueries} 分批（chunk）派发，避免瞬间向 DNS 服务器
      * 发出远超其承受能力的并发查询包（例如几万个域名 × 6 台服务器 一次性全部发出）。
+     * <p>
+     * 另外按 {@code restartBatchSize} 维护一条独立的、更粗粒度的批次边界：每处理满一批就
+     * 执行一次 {@code restartCommand}，重启本地 SmartDNS 进程，防止长跑任务里守护进程状态
+     * 退化（参考 217heidai/adblockfilters-modified 的 {@code health_check_interval} 机制）。
      */
     private static Result validate(List<String> toCheck, DnsConfig config) {
         Result result = new Result();
@@ -127,6 +131,8 @@ public final class DnsRuleFilter {
                 config.getProgressLogIntervalSeconds(), config.getProgressLogIntervalSeconds(), TimeUnit.SECONDS);
 
         int chunkSize = Math.max(1, config.getMaxConcurrentQueries());
+        int restartBatchSize = config.getRestartBatchSize();
+        AtomicInteger nextRestartThreshold = new AtomicInteger(restartBatchSize > 0 ? restartBatchSize : Integer.MAX_VALUE);
 
         try {
             List<String> round = toCheck;
@@ -176,6 +182,14 @@ public final class DnsRuleFilter {
                             nextRound.add(entry.getKey());
                         }
                     }
+
+                    // 参考 adblockfilters-modified 的 health_check_interval：
+                    // 每处理满一批（restartBatchSize 个域名），重启一次本地 SmartDNS 进程，
+                    // 防止长跑任务里守护进程状态退化。restartBatchSize<=0 时该功能关闭。
+                    while (totalChecked.get() >= nextRestartThreshold.get()) {
+                        restartSmartDnsIfConfigured(config);
+                        nextRestartThreshold.addAndGet(restartBatchSize);
+                    }
                 }
                 round = nextRound;
             }
@@ -186,6 +200,33 @@ public final class DnsRuleFilter {
         }
 
         return result;
+    }
+
+    /**
+     * 执行一次 SmartDNS 重启命令（同步等待其退出）。命令为空、执行异常或超时都只记录警告，
+     * 不会中断本轮 DNS 校验——重启只是尽力而为的优化手段，不是校验流程的硬性前置条件。
+     */
+    private static void restartSmartDnsIfConfigured(DnsConfig config) {
+        String command = config.getRestartCommand();
+        if (command == null || command.isBlank()) {
+            return;
+        }
+        try {
+            log.info("DNS 校验：达到批次边界，执行 SmartDNS 重启命令: {}", command);
+            Process process = new ProcessBuilder("sh", "-c", command)
+                    .redirectErrorStream(true)
+                    .start();
+            boolean finished = process.waitFor(config.getRestartTimeoutSeconds(), TimeUnit.SECONDS);
+            if (!finished) {
+                process.destroyForcibly();
+                log.warn("DNS 校验：SmartDNS 重启命令超过 {} 秒未完成，已强制终止，本轮校验继续",
+                        config.getRestartTimeoutSeconds());
+            } else if (process.exitValue() != 0) {
+                log.warn("DNS 校验：SmartDNS 重启命令退出码非 0（{}），本轮校验继续", process.exitValue());
+            }
+        } catch (Exception e) {
+            log.warn("DNS 校验：执行 SmartDNS 重启命令异常，本轮校验继续: {}", e.getMessage());
+        }
     }
 
     private static String extractValidatableDomain(String ruleText) {
