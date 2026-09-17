@@ -46,13 +46,16 @@ application:
   #DNS 交叉验证，任意一台能解析出结果即视为有效，全部失败（含重试）才剔除
   dns:
     enabled: true
-    timeout: 3                      #单次查询超时(秒)，同一域名对所有服务器是并发查询的
-    retries: 2                      #首轮全部失败后，额外重试的轮次数
-    max-concurrent-queries: 1000    #同时在飞的域名校验数，异步IO不占线程，可以设得比原来大一个数量级
+    timeout: 2                      #单次查询超时(秒)，同一域名对所有服务器是并发查询的
+    retries: 1                      #首轮全部失败后，额外重试的轮次数
+    max-concurrent-queries: 500    #同时在飞的域名校验数，异步IO不占线程，可以设得比原来大一个数量级
     check-aaaa: false               #是否额外查询AAAA(IPv6)记录，关闭可把单域名查询数减半，是提速最直接的一步
     max-duration-minutes: 28        #整个校验阶段的硬性时长上限(分钟)，防止拖垮CI的30分钟限制
     progress-log-interval-seconds: 15  #进度日志打印间隔(秒)，避免长时间没有任何输出
     max-failure-ratio: 0.15          #实际查询域名中失败率超过该阈值，判定DNS环境异常，本次跳过剔除
+    restart-batch-size: 30000       #每处理多少个域名重启一次本地SmartDNS，防止长跑任务里守护进程状态退化；参考adblockfilters的health_check_interval，设0关闭该机制
+    restart-command: 'sh ${SMARTDNS_PATH:/tmp/smartdns}/restart-smartdns.sh' #批次边界触发的重启命令；SMARTDNS_PATH由CI workflow设置，本地无该sidecar时把restart-batch-size设为0即可
+    restart-timeout-seconds: 90     #等待重启命令自身执行完成的超时时间(秒)，超时只记警告、不中断本轮校验
 
     servers:
       - '127.0.0.1:5053'  #本地 smartdns 入口，原 6 台公网 DNS 已挪进根目录 smartdns.conf 的上游配置里
