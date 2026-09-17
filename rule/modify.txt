@@ -1,5 +1,5 @@
 # Title: AdGuard、AdGuardHome广告过滤规则合并/去重 - modify.txt
-# Update time: 2026-09-17 11:00:02
+# Update time: 2026-09-17 15:54:07
 # Expires: 12 hours
 # Repo URL:: https://github.com/hululu1068/AdGuard-Rule
 
@@ -53765,8 +53765,6 @@ zhidao.baidu.com##div.jump-top-box:last-child > a.jump-goto-star:last-child
 zhihu.com##.zhihuAdvert-MBanner-wordDownload
 zol.com.cn##A.dingtong.xianshiyouhui
 ||*.org/config/v7.js
-||*/omts.tc.qq.com^
-||*/snscosdownload/*/reserved/*^
 ||/js/0x1a2b3c4d.js
 ||156zw.com/css/js/tools.js
 ||172.247.208.87/js/head.js
