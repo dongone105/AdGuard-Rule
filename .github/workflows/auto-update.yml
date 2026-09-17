@@ -34,6 +34,28 @@ jobs:
           distribution: 'temurin'
           cache: maven
 
+      - name: Setup SmartDNS
+        run: |
+          set -e
+          ASSET_URL=$(curl -s https://api.github.com/repos/pymumu/smartdns/releases/latest \
+            | grep browser_download_url \
+            | grep 'x86_64-linux-all.tar.gz' \
+            | cut -d '"' -f 4)
+          echo "downloading: $ASSET_URL"
+          curl -fL "$ASSET_URL" -o smartdns.tar.gz
+          tar zxf smartdns.tar.gz
+          cd smartdns
+          chmod +x ./install
+          sudo ./install -i || true
+          cd ..
+          sudo systemctl stop smartdns || true
+          sudo cp -f smartdns.conf /etc/smartdns/smartdns.conf
+          sudo systemctl restart smartdns
+          sleep 2
+          sudo systemctl status smartdns --no-pager
+          dig @127.0.0.1 -p 5053 www.baidu.com +short || (echo "smartdns 未生效，打印日志排查：" && sudo journalctl -xeu smartdns --no-pager -n 100 && exit 1)
+          rm -rf smartdns smartdns.tar.gz
+
       - name: Diagnose SmartDNS
         run: |
           echo "===== 1. 测试到各上游 853 端口(DoT)的 TCP 连通性 ====="
