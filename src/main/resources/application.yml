@@ -56,6 +56,12 @@ application:
     restart-batch-size: 30000       #每处理多少个域名重启一次本地SmartDNS，防止长跑任务里守护进程状态退化；参考adblockfilters的health_check_interval，设0关闭该机制
     restart-command: 'sh ${SMARTDNS_PATH:/tmp/smartdns}/restart-smartdns.sh' #批次边界触发的重启命令；SMARTDNS_PATH由CI workflow设置，本地无该sidecar时把restart-batch-size设为0即可
     restart-timeout-seconds: 90     #等待重启命令自身执行完成的超时时间(秒)，超时只记警告、不中断本轮校验
+    connect-probe-enabled: true     #先做TCP连接探测(80/443)，连通即直接判定存活，不消耗真实DNS查询；不经过本地SmartDNS，独立于其缓存/负载状态
+    connect-probe-timeout-ms: 3000  #单次TCP连接探测超时(毫秒)
+    health-check-enabled: true      #批次重启SmartDNS前后主动做健康检查
+    health-check-timeout-seconds: 5 #单次健康检查查询超时(秒)
+    health-check-initial-backoff-seconds: 5  #健康检查失败后的初始退避等待(秒)，之后每次翻倍
+    health-check-max-wait-seconds: 600       #健康检查最长等待时间(秒)，超时放弃等待、继续后续校验
 
     servers:
       - '127.0.0.1:5053'  #本地 smartdns 入口，原 6 台公网 DNS 已挪进根目录 smartdns.conf 的上游配置里
