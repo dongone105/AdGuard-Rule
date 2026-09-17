@@ -89,7 +89,15 @@ public final class DnsValidator {
     private static SimpleResolver resolverFor(String server, int timeoutSeconds) {
         return RESOLVERS.computeIfAbsent(server, s -> {
             try {
-                SimpleResolver resolver = new SimpleResolver(s);
+                String host = s;
+                int port = 53;
+                int idx = s.lastIndexOf(':');
+                if (idx > 0) {
+                    host = s.substring(0, idx);
+                    port = Integer.parseInt(s.substring(idx + 1));
+                }
+                SimpleResolver resolver = new SimpleResolver(host);
+                resolver.setPort(port);
                 resolver.setTimeout(Duration.ofSeconds(timeoutSeconds));
                 return resolver;
             } catch (Exception e) {
