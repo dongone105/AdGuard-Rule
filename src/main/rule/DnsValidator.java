@@ -11,11 +11,14 @@ import org.xbill.DNS.SimpleResolver;
 import org.xbill.DNS.Type;
 
 import java.net.InetSocketAddress;
+import java.net.Socket;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -32,7 +35,59 @@ public final class DnsValidator {
     // 避免每次查询都重新创建/初始化
     private static final ConcurrentHashMap<String, SimpleResolver> RESOLVERS = new ConcurrentHashMap<>();
 
+    /**
+     * TCP 连接探测专用线程池。{@link Socket#connect} 是阻塞调用，但探测本身很轻量
+     * （只需要三次握手成功与否），用一个独立的、按需扩容的线程池承载即可，
+     * 不会影响 DNS 查询那边真正的异步 NIO 模型
+     */
+    private static final ExecutorService PROBE_EXECUTOR = Executors.newCachedThreadPool(r -> {
+        Thread t = new Thread(r, "dns-tcp-probe");
+        t.setDaemon(true);
+        return t;
+    });
+
     private DnsValidator() {
+    }
+
+    /**
+     * 校验入口。若启用了连接探测（{@link DnsConfig#isConnectProbeEnabled()}），
+     * 先尝试对域名的 80/443 端口做一次 TCP 连接：连通即直接判定存活，不消耗任何真实 DNS 查询。
+     * <p>
+     * 关键点：这一步用的是 JVM/操作系统默认的域名解析（{@link java.net.InetAddress}），
+     * 完全不经过 servers 里配置的本地 SmartDNS，因此不受 SmartDNS 是否命中缓存、是否过载的影响，
+     * 是一条独立于 DNS 校验之外、更快速也更抗干扰的存活判定路径——
+     * 参考 217heidai/adblockfilters-modified 里 {@code __pingx} 的思路：
+     * 能连通就不必再指望本地那台「每次都要打真实上游」的 SmartDNS。
+     * <p>
+     * 连接失败（或未启用探测）时才 fallback 到 {@link #isResolvableAsync(String, DnsConfig)}。
+     */
+    public static CompletableFuture<Boolean> validateAsync(String domain, DnsConfig config) {
+        if (!config.isConnectProbeEnabled()) {
+            return isResolvableAsync(domain, config);
+        }
+        return isReachableViaTcp(domain, config.getConnectProbeTimeoutMs())
+                .thenCompose(reachable -> Boolean.TRUE.equals(reachable)
+                        ? CompletableFuture.completedFuture(true)
+                        : isResolvableAsync(domain, config));
+    }
+
+    /**
+     * 依次尝试 80、443 端口的 TCP 连接，任意一个能建立连接即视为存活。
+     * 两次尝试都失败（含域名无法解析、连接超时、连接拒绝等）才返回 false。
+     */
+    public static CompletableFuture<Boolean> isReachableViaTcp(String domain, int timeoutMs) {
+        return CompletableFuture.supplyAsync(
+                () -> tryConnect(domain, 80, timeoutMs) || tryConnect(domain, 443, timeoutMs),
+                PROBE_EXECUTOR);
+    }
+
+    private static boolean tryConnect(String host, int port, int timeoutMs) {
+        try (Socket socket = new Socket()) {
+            socket.connect(new InetSocketAddress(host, port), timeoutMs);
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     /**
