@@ -48,7 +48,7 @@ application:
     enabled: true
     timeout: 5                      #单次查询超时(秒)，同一域名对所有服务器是并发查询的
     retries: 1                      #首轮全部失败后，额外重试的轮次数
-    max-concurrent-queries: 500    #同时在飞的域名校验数，异步IO不占线程，可以设得比原来大一个数量级
+    #max-concurrent-queries: 500    #同时在飞的域名校验数，异步IO不占线程，可以设得比原来大一个数量级
     check-aaaa: false               #是否额外查询AAAA(IPv6)记录，关闭可把单域名查询数减半，是提速最直接的一步
     max-duration-minutes: 28        #整个校验阶段的硬性时长上限(分钟)，防止拖垮CI的30分钟限制
     progress-log-interval-seconds: 15  #进度日志打印间隔(秒)，避免长时间没有任何输出
