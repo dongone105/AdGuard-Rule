@@ -10,6 +10,7 @@ import org.xbill.DNS.Section;
 import org.xbill.DNS.SimpleResolver;
 import org.xbill.DNS.Type;
 
+import java.net.InetSocketAddress;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -89,15 +90,16 @@ public final class DnsValidator {
     private static SimpleResolver resolverFor(String server, int timeoutSeconds) {
         return RESOLVERS.computeIfAbsent(server, s -> {
             try {
+                // 支持 "host:port" 格式（如本地 SmartDNS 的 127.0.0.1:5053）；
+                // SimpleResolver(String) 只接受纯主机名且端口固定为 53，无法满足非标准端口的场景
                 String host = s;
-                int port = 53;
+                int port = SimpleResolver.DEFAULT_PORT;
                 int idx = s.lastIndexOf(':');
-                if (idx > 0) {
+                if (idx > 0 && s.indexOf(':') == idx) {
                     host = s.substring(0, idx);
                     port = Integer.parseInt(s.substring(idx + 1));
                 }
-                SimpleResolver resolver = new SimpleResolver(host);
-                resolver.setPort(port);
+                SimpleResolver resolver = new SimpleResolver(new InetSocketAddress(host, port));
                 resolver.setTimeout(Duration.ofSeconds(timeoutSeconds));
                 return resolver;
             } catch (Exception e) {
