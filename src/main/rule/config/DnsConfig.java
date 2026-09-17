@@ -82,6 +82,31 @@ public class DnsConfig {
      */
     private double maxFailureRatio = 0.3;
 
+    /**
+     * 每处理多少个域名，重启一次本地 SmartDNS 进程（防止长跑任务里守护进程状态退化）。
+     * 参考 217heidai/adblockfilters-modified 的 {@code health_check_interval}（默认 30000）。
+     * 默认 0 表示关闭该机制——例如本地开发环境没有可重启的 SmartDNS sidecar 时，
+     * 保持 0 即可，不会有任何行为变化
+     */
+    private int restartBatchSize = 0;
+
+    /**
+     * 达到 {@link #restartBatchSize} 批次边界时执行的重启命令，交给 {@code sh -c} 执行，
+     * 同步等待其退出。留空（默认）等价于关闭重启机制，即使 restartBatchSize > 0 也不会触发。
+     * <p>
+     * CI 场景下建议指向随 workflow 一起分发的 scripts/restart-smartdns.sh，
+     * 该脚本依赖 SMARTDNS_PATH 环境变量定位 smartdns 可执行文件/配置/pid 文件，
+     * 因此这里通常配置成 {@code sh ${SMARTDNS_PATH:/tmp/smartdns}/restart-smartdns.sh}
+     * （显式用 sh 调用，不依赖脚本文件本身的可执行位是否在 checkout 后被保留）
+     */
+    private String restartCommand = "";
+
+    /**
+     * 等待重启命令自身执行完成的超时时间（秒）。超时会被强制终止（destroyForcibly），
+     * 只记录一条警告日志，不会中断本轮 DNS 校验——重启只是尽力而为的优化，不是硬性前置条件
+     */
+    private int restartTimeoutSeconds = 90;
+
     // 【已移除】原本地磁盘缓存配置（cacheEnabled/cachePath/cacheTtlHours/invalidCacheTtlHours）。
     // 校验结论缓存改由 DNS 服务器（本地 SmartDNS sidecar）自身承担：只要 servers 指向的是带持久化
     // 查询缓存的 SmartDNS（见 config/smartdns.conf 的 cache-persist / serve-expired），命中缓存时
