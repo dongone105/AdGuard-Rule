@@ -56,12 +56,8 @@ application:
     cache-ttl-hours: 168            #有效域名缓存有效期(小时)，拉长到7天，减少重复查询已确认存活的域名
     invalid-cache-ttl-hours: 24     #失效域名缓存有效期(小时)，避免对已确认下线的域名反复真实查询
     servers:
-      - '223.5.5.5'       #阿里DNS
-      - '119.29.29.29'    #DNSPod
-      - '114.114.114.114' #114DNS
-      - '8.8.8.8'         #Google
-      - '1.1.1.1'         #Cloudflare
-      - '9.9.9.9'         #Quad9
+    servers:
+      - '127.0.0.1:5053'  #本地 smartdns 入口，原 6 台公网 DNS 已挪进根目录 smartdns.conf 的上游配置里
   output:
     path: rule   #规则文件输出路径，相对路径默认从 项目目录开始
     files:
