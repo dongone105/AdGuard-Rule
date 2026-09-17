@@ -116,14 +116,18 @@ jobs:
       - name: Commit Changes
         id: commit
         run: |
-          if [ -z "$(git status --porcelain -- rule/*.txt "$SMARTDNS_CACHE_DUMP")" ]; then
+          paths=(rule/*.txt)
+          if [ -f "$SMARTDNS_CACHE_DUMP" ]; then
+            paths+=("$SMARTDNS_CACHE_DUMP")
+          fi
+          if [ -z "$(git status --porcelain -- "${paths[@]}")" ]; then
               exit 0
           else
             echo "status=success" >> $GITHUB_OUTPUT
-            git add -- rule/*.txt "$SMARTDNS_CACHE_DUMP"
-            git config --local user.name "actions"
-            git config --local user.email "action@github.com"
-            git commit -m "CI Updated at $(date +'%Y-%m-%d %H:%M:%S')" -- rule/*.txt "$SMARTDNS_CACHE_DUMP"
+            git add -- "${paths[@]}"
+            git config --local user.name "dongone105"
+            git config --local user.email "dongwen-hu@foxmail.com"
+            git commit -m "CI Updated at $(date +'%Y-%m-%d %H:%M:%S')" -- "${paths[@]}"
           fi
 
       - name: Push rule updates
