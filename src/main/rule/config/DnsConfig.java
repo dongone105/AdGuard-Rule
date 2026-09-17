@@ -82,32 +82,9 @@ public class DnsConfig {
      */
     private double maxFailureRatio = 0.3;
 
-    /**
-     * 是否启用磁盘缓存。开启后，近期已确认结论（有效或失效）的域名会跳过真实查询，
-     * 只需要校验新增/缓存过期的域名，能大幅缩短重复运行（12 小时一次）的总耗时，
-     * 是解决「首次全量校验容易超时」问题的关键手段
-     */
-    private boolean cacheEnabled = true;
-
-    /**
-     * 缓存文件路径，相对路径从项目目录开始解析。
-     * 默认放在 rule 目录下且不以 "." 开头，这样已有的 CI 提交步骤
-     * （git add -- rule/*.txt）会自动把它一并提交，缓存天然跨运行持久化，
-     * 不需要额外改动 workflow 或引入 actions/cache
-     */
-    private String cachePath = "rule/dns-cache.txt";
-
-    /**
-     * 「有效」结论的缓存有效期（小时），超过该时间需要重新真实校验。
-     * 已确认可解析的域名很少会突然失效，可以设置得长一些（比如7天=168）
-     */
-    private int cacheTtlHours = 168;
-
-    /**
-     * 「失效」结论的缓存有效期（小时），通常比 cacheTtlHours 短很多。
-     * 域名一旦被真实校验确认失效，在这个时间窗口内不会重新对它发起真实查询，
-     * 直接沿用「失效」结论并继续剔除对应规则——避免对已经确认下线的域名反复查询，
-     * 同时窗口到期后仍会重新校验，防止域名"复活"后被永久误杀
-     */
-    private int invalidCacheTtlHours = 24;
+    // 【已移除】原本地磁盘缓存配置（cacheEnabled/cachePath/cacheTtlHours/invalidCacheTtlHours）。
+    // 校验结论缓存改由 DNS 服务器（本地 SmartDNS sidecar）自身承担：只要 servers 指向的是带持久化
+    // 查询缓存的 SmartDNS（见 config/smartdns.conf 的 cache-persist / serve-expired），命中缓存时
+    // 在 loopback 上是毫秒级响应，不会产生真实上游查询；Java 侧因此不再需要一份平行的结论缓存，
+    // 每次都会发起真实查询，但慢不慢完全取决于 SmartDNS 是否命中它自己的缓存。
 }
