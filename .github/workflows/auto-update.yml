@@ -11,6 +11,10 @@ on:
 
 env:
   TZ: Asia/Shanghai
+  SMARTDNS_PATH: /tmp/smartdns
+  # SmartDNS 自身的查询缓存持久化文件，放在 rule/ 下以便和规则文件一起被 Commit Changes 步骤提交，
+  # 跨 CI 运行复用；取代了原先 Java 侧 rule/dns-cache.txt 那套「校验结论缓存」
+  SMARTDNS_CACHE_DUMP: rule/smartdns-cache.dump
 
 permissions:
   contents: write
@@ -34,48 +38,90 @@ jobs:
           distribution: 'temurin'
           cache: maven
 
+      - name: Build with Maven
+        run: mvn -B package
+
       - name: Setup SmartDNS
         run: |
           set -e
-          ASSET_URL=$(curl -s https://api.github.com/repos/pymumu/smartdns/releases/latest \
-            | grep browser_download_url \
-            | grep 'x86_64-linux-all.tar.gz' \
-            | cut -d '"' -f 4)
-          echo "downloading: $ASSET_URL"
-          curl -fL "$ASSET_URL" -o smartdns.tar.gz
-          tar zxf smartdns.tar.gz
-          cd smartdns
-          chmod +x ./install
-          sudo ./install -i || true
-          cd ..
-          sudo systemctl stop smartdns || true
-          sudo cp -f smartdns.conf /etc/smartdns/smartdns.conf
-          sudo systemctl restart smartdns
-          sleep 2
-          sudo systemctl status smartdns --no-pager
-          dig @127.0.0.1 -p 5053 www.baidu.com +short || (echo "smartdns 未生效，打印日志排查：" && sudo journalctl -xeu smartdns --no-pager -n 100 && exit 1)
-          rm -rf smartdns smartdns.tar.gz
+          mkdir -p "$SMARTDNS_PATH"
+          sudo apt-get update -y
+          sudo apt-get install -y dnsutils
 
+          # 恢复上次运行持久化下来的查询缓存（若是首次运行则该文件不存在，跳过即可）
+          if [ -f "$SMARTDNS_CACHE_DUMP" ]; then
+            cp "$SMARTDNS_CACHE_DUMP" "$SMARTDNS_PATH/cache.dump"
+            echo "已恢复 SmartDNS 缓存: $(du -h "$SMARTDNS_PATH/cache.dump" | cut -f1)"
+          fi
 
-      - name: Build with Maven
-        run: mvn -B package
+          max_attempts=5
+          sleep_seconds=5
+          for attempt in $(seq 1 $max_attempts); do
+            echo "SmartDNS setup attempt ${attempt}/${max_attempts}"
+            LATEST_URL="https://github.com/pymumu/smartdns/releases/latest/download/smartdns-x86_64"
+            if wget -q "$LATEST_URL" -O "$SMARTDNS_PATH/smartdns" && [ -s "$SMARTDNS_PATH/smartdns" ]; then
+              chmod +x "$SMARTDNS_PATH/smartdns"
+              cp config/smartdns.conf "$SMARTDNS_PATH/smartdns.conf"
+              nohup "$SMARTDNS_PATH/smartdns" -f -x -c "$SMARTDNS_PATH/smartdns.conf" > /dev/null 2>&1 &
+              echo "$!" > "$SMARTDNS_PATH/smartdns.pid"
+              echo "SmartDNS started."
+              break
+            else
+              echo "SmartDNS download failed or empty binary."
+            fi
+            if [ "$attempt" -eq "$max_attempts" ]; then
+              echo "SmartDNS setup failed after ${max_attempts} attempts."
+              exit 1
+            fi
+            sleep "$sleep_seconds"
+            sleep_seconds=$((sleep_seconds * 2))
+          done
+
+      - name: Wait for SmartDNS
+        run: |
+          for i in $(seq 1 60); do
+            if dig @127.0.0.1 -p 5053 example.com A +time=2 +tries=1 +short > /dev/null 2>&1; then
+              echo "SmartDNS ready."
+              exit 0
+            fi
+            echo "SmartDNS not ready yet, waiting... ($i/60)"
+            sleep 1
+          done
+          echo "SmartDNS failed to become ready, dumping log:"
+          tail -n 200 "$SMARTDNS_PATH/smartdns.log" 2>/dev/null || true
+          exit 1
 
       - name: Run Jar
         run: |
           ulimit -n 65536
           java -jar ./target/adg-rule-1.0.0.jar
 
+      - name: Persist SmartDNS cache
+        if: always()
+        run: |
+          # 先礼貌地 SIGTERM 让 SmartDNS 触发一次落盘（cache-persist + cache-checkpoint-time
+          # 平时也会周期性落盘，这里是保证退出前最后一份缓存也不丢），再拷回仓库目录等待提交
+          if [ -f "$SMARTDNS_PATH/smartdns.pid" ]; then
+            kill -TERM "$(cat "$SMARTDNS_PATH/smartdns.pid")" 2>/dev/null || true
+            sleep 2
+          fi
+          mkdir -p "$(dirname "$SMARTDNS_CACHE_DUMP")"
+          if [ -f "$SMARTDNS_PATH/cache.dump" ]; then
+            cp "$SMARTDNS_PATH/cache.dump" "$SMARTDNS_CACHE_DUMP"
+            echo "已保存 SmartDNS 缓存: $(du -h "$SMARTDNS_CACHE_DUMP" | cut -f1)"
+          fi
+
       - name: Commit Changes
         id: commit
         run: |
-          if [ -z "$(git status --porcelain -- rule/*.txt)" ]; then
+          if [ -z "$(git status --porcelain -- rule/*.txt "$SMARTDNS_CACHE_DUMP")" ]; then
               exit 0
           else
             echo "status=success" >> $GITHUB_OUTPUT
-            git add -- rule/*.txt
+            git add -- rule/*.txt "$SMARTDNS_CACHE_DUMP"
             git config --local user.name "actions"
             git config --local user.email "action@github.com"
-            git commit -m "CI Updated at $(date +'%Y-%m-%d %H:%M:%S')" -- rule/*.txt
+            git commit -m "CI Updated at $(date +'%Y-%m-%d %H:%M:%S')" -- rule/*.txt "$SMARTDNS_CACHE_DUMP"
           fi
 
       - name: Push rule updates
