@@ -46,13 +46,15 @@ jobs:
           tar zxf smartdns.tar.gz
           cd smartdns
           chmod +x ./install
-          sudo ./install -i
+          # 安装脚本会用默认配置(53端口)尝试自启动一次，此时必然失败(53已被 systemd-resolved 占用)，属于预期内，忽略即可
+          sudo ./install -i || true
           cd ..
+          sudo systemctl stop smartdns || true
           sudo cp -f smartdns.conf /etc/smartdns/smartdns.conf
           sudo systemctl restart smartdns
           sleep 2
           sudo systemctl status smartdns --no-pager
-          dig @127.0.0.1 -p 5053 www.baidu.com +short || (echo "smartdns 未生效" && exit 1)
+          dig @127.0.0.1 -p 5053 www.baidu.com +short || (echo "smartdns 未生效，打印日志排查：" && sudo journalctl -xeu smartdns --no-pager && exit 1)
           rm -rf smartdns smartdns.tar.gz
           
       - name: Build with Maven
