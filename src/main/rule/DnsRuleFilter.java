@@ -7,7 +7,6 @@ import org.fordes.adg.rule.config.DnsConfig;
 import org.fordes.adg.rule.enums.RuleType;
 
 import java.net.IDN;
-import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.EnumMap;
@@ -61,28 +60,12 @@ public final class DnsRuleFilter {
             return;
         }
 
-        Path cachePath = config.isCacheEnabled() ? Util.resolvePath(config.getCachePath()) : null;
-        DnsCache cache = DnsCache.load(cachePath, config.getCacheTtlHours(), config.getInvalidCacheTtlHours());
-
-        // 缓存命中「有效」的域名直接跳过；缓存命中「失效」的域名同样跳过真实查询，
-        // 但仍然需要参与后续的规则剔除（沿用上次确认的失效结论）
-        List<String> toCheck = new ArrayList<>();
-        Set<String> cachedInvalid = new HashSet<>();
-        int cacheHitValid = 0;
-        for (String domain : keysByDomain.keySet()) {
-            if (config.isCacheEnabled() && cache.isFresh(domain)) {
-                if (cache.cachedValid(domain)) {
-                    cacheHitValid++;
-                } else {
-                    cachedInvalid.add(domain);
-                }
-            } else {
-                toCheck.add(domain);
-            }
-        }
-        log.info("DNS 校验：涉及域名 {} 个，缓存命中有效 {} 个、缓存命中失效 {} 个（直接复用结论，跳过查询），"
-                        + "剩余 {} 个需要实际查询",
-                keysByDomain.size(), cacheHitValid, cachedInvalid.size(), toCheck.size());
+        // 不再维护 Java 侧的本地结论缓存：所有域名都真实发起一次查询，
+        // 查询是否快、是否产生真实上游流量，完全交给 servers 指向的 SmartDNS 自身的查询缓存决定
+        // （命中缓存时 SmartDNS 在 loopback 上是毫秒级响应，详见 config/smartdns.conf）
+        List<String> toCheck = new ArrayList<>(keysByDomain.keySet());
+        log.info("DNS 校验：涉及域名 {} 个，全部通过本地 SmartDNS 发起查询（缓存命中与否由 SmartDNS 自身决定）",
+                toCheck.size());
 
         Result result = validate(toCheck, config);
 
@@ -96,20 +79,14 @@ public final class DnsRuleFilter {
                 String.format("%.2f%%", failureRatio * 100), interval.intervalMs());
 
         if (failureRatio > config.getMaxFailureRatio()) {
-            log.warn("DNS 校验失败率 {} 超过阈值 {}，判定为 DNS 环境异常（例如 CI 出网受限、DNS 服务器不可达），"
-                            + "本次跳过剔除，规则集保持不变（缓存中已知的失效域名本轮也一律不剔除，等下次校验恢复正常再处理）",
+            log.warn("DNS 校验失败率 {} 超过阈值 {}，判定为 DNS 环境异常（例如 CI 出网受限、SmartDNS sidecar 未就绪），"
+                            + "本次跳过剔除，规则集保持不变",
                     String.format("%.2f%%", failureRatio * 100),
                     String.format("%.2f%%", config.getMaxFailureRatio() * 100));
-            if (config.isCacheEnabled()) {
-                result.confirmedValid.forEach(cache::markValid);
-                cache.retainAll(keysByDomain.keySet());
-                cache.save();
-            }
             return;
         }
 
-        Set<String> allInvalid = new HashSet<>(result.confirmedInvalid);
-        allInvalid.addAll(cachedInvalid);
+        Set<String> allInvalid = result.confirmedInvalid;
 
         Map<RuleType, Set<String>> keysToRemove = new EnumMap<>(RuleType.class);
         for (String domain : allInvalid) {
@@ -121,15 +98,7 @@ public final class DnsRuleFilter {
         for (Map.Entry<RuleType, Set<String>> entry : keysToRemove.entrySet()) {
             aggregator.removeIf(entry.getKey(), entry.getValue()::contains);
         }
-        log.info("DNS 校验剔除 {} 条失效规则（对应 {} 个失效域名，其中 {} 个来自本轮实际查询，{} 个直接复用缓存结论）",
-                removedRules, allInvalid.size(), result.confirmedInvalid.size(), cachedInvalid.size());
-
-        if (config.isCacheEnabled()) {
-            result.confirmedValid.forEach(cache::markValid);
-            result.confirmedInvalid.forEach(cache::markInvalid);
-            cache.retainAll(keysByDomain.keySet());
-            cache.save();
-        }
+        log.info("DNS 校验剔除 {} 条失效规则（对应 {} 个失效域名）", removedRules, allInvalid.size());
     }
 
     /**
