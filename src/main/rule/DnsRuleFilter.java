@@ -9,6 +9,7 @@ import org.fordes.adg.rule.enums.RuleType;
 import java.net.IDN;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -64,7 +65,7 @@ public final class DnsRuleFilter {
         // 查询是否快、是否产生真实上游流量，完全交给 servers 指向的 SmartDNS 自身的查询缓存决定
         // （命中缓存时 SmartDNS 在 loopback 上是毫秒级响应，详见 config/smartdns.conf）
         List<String> toCheck = new ArrayList<>(keysByDomain.keySet());
-        log.info("DNS 校验：涉及域名 {} 个，全部通过本地 SmartDNS 发起查询（缓存命中与否由 SmartDNS 自身决定）",
+        log.info("DNS 校验：涉及域名 {} 个，优先 TCP 探活分流，未命中的才通过本地 SmartDNS 发起查询",
                 toCheck.size());
 
         Result result = validate(toCheck, config);
@@ -107,14 +108,18 @@ public final class DnsRuleFilter {
      * 发出远超其承受能力的并发查询包（例如几万个域名 × 6 台服务器 一次性全部发出）。
      * <p>
      * 另外按 {@code restartBatchSize} 维护一条独立的、更粗粒度的批次边界：每处理满一批就
-     * 执行一次 {@code restartCommand}，重启本地 SmartDNS 进程，防止长跑任务里守护进程状态
-     * 退化（参考 217heidai/adblockfilters-modified 的 {@code health_check_interval} 机制）。
+     * 执行一次 {@code restartCommand}，重启本地 SmartDNS 进程，并在重启前后主动做健康检查、
+     * 按指数退避等待其恢复，防止长跑任务里守护进程状态退化
+     * （参考 217heidai/adblockfilters-modified 的 {@code health_check_interval} / {@code __wait_for_smartdns} 机制）。
      */
     private static Result validate(List<String> toCheck, DnsConfig config) {
         Result result = new Result();
         if (toCheck.isEmpty()) {
             return result;
         }
+
+        // 开跑之前先确认一次 SmartDNS 是健康的，避免一上来就把大批查询打在一个还没就绪/已经异常的实例上
+        waitForSmartDnsHealthy(config);
 
         ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
             Thread t = new Thread(r, "dns-validator-progress");
@@ -157,7 +162,7 @@ public final class DnsRuleFilter {
                     List<String> chunk = round.subList(from, Math.min(from + chunkSize, round.size()));
                     Map<String, CompletableFuture<Boolean>> futures = new HashMap<>();
                     for (String domain : chunk) {
-                        futures.put(domain, DnsValidator.isResolvableAsync(domain, config)
+                        futures.put(domain, DnsValidator.validateAsync(domain, config)
                                 .whenComplete((resolvable, error) -> totalChecked.incrementAndGet()));
                     }
 
@@ -185,9 +190,11 @@ public final class DnsRuleFilter {
 
                     // 参考 adblockfilters-modified 的 health_check_interval：
                     // 每处理满一批（restartBatchSize 个域名），重启一次本地 SmartDNS 进程，
-                    // 防止长跑任务里守护进程状态退化。restartBatchSize<=0 时该功能关闭。
+                    // 重启前后都主动做健康检查、按指数退避等待其恢复，而不是重启完就立刻无脑继续。
+                    // restartBatchSize<=0 时该功能关闭。
                     while (totalChecked.get() >= nextRestartThreshold.get()) {
                         restartSmartDnsIfConfigured(config);
+                        waitForSmartDnsHealthy(config);
                         nextRestartThreshold.addAndGet(restartBatchSize);
                     }
                 }
@@ -226,6 +233,64 @@ public final class DnsRuleFilter {
             }
         } catch (Exception e) {
             log.warn("DNS 校验：执行 SmartDNS 重启命令异常，本轮校验继续: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * 主动探测 SmartDNS（servers 中的第一台，通常就是本地 sidecar）是否健康：
+     * 对 example.com 发起一次真实的 A 记录查询，成功即视为健康。
+     * 不健康则按指数退避（{@code healthCheckInitialBackoffSeconds} 起步，每次翻倍，
+     * 上限 60 秒）持续重试，直到健康或达到 {@code healthCheckMaxWaitSeconds} 总等待上限为止——
+     * 参考 217heidai/adblockfilters-modified 的 {@code __wait_for_smartdns}。
+     * <p>
+     * 达到等待上限仍不健康只记录警告、继续后续校验，不中断整个任务
+     * （SmartDNS 若确实起不来，后续查询自然会大量失败，交给外层的 {@code maxFailureRatio} 兜底）。
+     */
+    private static void waitForSmartDnsHealthy(DnsConfig config) {
+        if (!config.isHealthCheckEnabled() || config.getServers() == null || config.getServers().isEmpty()) {
+            return;
+        }
+        String server = config.getServers().get(0);
+        long start = System.currentTimeMillis();
+        long maxWaitMillis = Math.max(0, config.getHealthCheckMaxWaitSeconds()) * 1000L;
+        int backoffSeconds = Math.max(1, config.getHealthCheckInitialBackoffSeconds());
+        int attempt = 0;
+
+        while (true) {
+            if (isSmartDnsHealthy(server, config.getHealthCheckTimeoutSeconds())) {
+                if (attempt > 0) {
+                    log.info("SmartDNS 健康检查通过（第 {} 次尝试后恢复）", attempt);
+                }
+                return;
+            }
+            attempt++;
+            if (System.currentTimeMillis() - start >= maxWaitMillis) {
+                log.warn("SmartDNS 健康检查在 {} 秒内始终未通过，放弃等待，继续后续校验",
+                        config.getHealthCheckMaxWaitSeconds());
+                return;
+            }
+            log.warn("SmartDNS 健康检查未通过（第 {} 次尝试），{} 秒后重试", attempt, backoffSeconds);
+            try {
+                TimeUnit.SECONDS.sleep(backoffSeconds);
+            } catch (InterruptedException ignored) {
+                Thread.currentThread().interrupt();
+                return;
+            }
+            backoffSeconds = Math.min(backoffSeconds * 2, 60);
+        }
+    }
+
+    private static boolean isSmartDnsHealthy(String server, int timeoutSeconds) {
+        DnsConfig probeConfig = new DnsConfig();
+        probeConfig.setServers(Collections.singletonList(server));
+        probeConfig.setTimeout(timeoutSeconds);
+        probeConfig.setCheckAaaa(false);
+        try {
+            Boolean resolvable = DnsValidator.isResolvableAsync("example.com.", probeConfig)
+                    .get(timeoutSeconds + 1L, TimeUnit.SECONDS);
+            return Boolean.TRUE.equals(resolvable);
+        } catch (Exception e) {
+            return false;
         }
     }
 
