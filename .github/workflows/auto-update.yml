@@ -54,6 +54,7 @@ jobs:
           sudo systemctl status smartdns --no-pager
           dig @127.0.0.1 -p 5053 www.baidu.com +short || (echo "smartdns 未生效" && exit 1)
           rm -rf smartdns smartdns.tar.gz
+          
       - name: Build with Maven
         run: mvn -B package
 
