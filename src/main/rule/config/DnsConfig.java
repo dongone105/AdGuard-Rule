@@ -37,16 +37,18 @@ public class DnsConfig {
 
     /**
      * 单次查询超时时间（秒）。同一域名对所有服务器、记录类型都是并发查询的，
-     * 因此单个域名单轮的最坏耗时约等于这个值，而不是「服务器数量 × 该值」
+     * 因此单个域名单轮的最坏耗时约等于这个值，而不是「服务器数量 × 该值」。
+     * 之前设为 2 秒偏紧——在 SmartDNS 每次都要打真实上游（未命中缓存）的情况下，
+     * 很多本来只是稍慢的正常解析会被误判为超时失败，适当放宽到 3~4 秒更稳妥
      */
-    private int timeout = 3;
+    private int timeout = 4;
 
     /**
      * 一个域名首轮校验失败（所有服务器都无结果）后，额外重试的轮次数。
      * 只有仍在重试名单里的域名才会被再次查询，不会拖慢已经成功/明确失败的域名，
-     * 用来降低网络抖动造成的误杀
+     * 用来降低网络抖动造成的误杀。之前是 1，适当调高可以进一步降低误杀率
      */
-    private int retries = 1;
+    private int retries = 2;
 
     /**
      * 同一时刻允许「在飞」的域名校验数量上限。
@@ -106,6 +108,42 @@ public class DnsConfig {
      * 只记录一条警告日志，不会中断本轮 DNS 校验——重启只是尽力而为的优化，不是硬性前置条件
      */
     private int restartTimeoutSeconds = 90;
+
+    /**
+     * 是否在真正发起 DNS 查询之前，先尝试对域名做一次 TCP 连接探测（80/443 端口）。
+     * 参考 217heidai/adblockfilters-modified 的 {@code __pingx} 思路：能够建立 TCP 连接的域名
+     * 直接判定为存活，不再消耗一次真实的 DNS 查询——这一步用的是 JVM/系统默认解析器，
+     * 不经过本地 SmartDNS，因此完全不受 SmartDNS 是否命中缓存、是否过载的影响，
+     * 能显著降低真正需要打到 SmartDNS 上游的域名数量，从而降低整体失败率
+     */
+    private boolean connectProbeEnabled = true;
+
+    /**
+     * TCP 连接探测的单次超时时间（毫秒）
+     */
+    private int connectProbeTimeoutMs = 3000;
+
+    /**
+     * 是否在批次重启 SmartDNS 前后做主动健康检查（对 example.com 发起一次真实查询），
+     * 不健康则按指数退避等待重试，而不是重启完就立刻无脑继续发查询
+     */
+    private boolean healthCheckEnabled = true;
+
+    /**
+     * 单次健康检查查询的超时时间（秒）
+     */
+    private int healthCheckTimeoutSeconds = 5;
+
+    /**
+     * 健康检查失败后的初始退避等待时间（秒），之后每次翻倍，上限见 {@link #healthCheckMaxWaitSeconds}
+     */
+    private int healthCheckInitialBackoffSeconds = 5;
+
+    /**
+     * 健康检查最长等待时间（秒）。超过该时间仍不健康，放弃等待、继续后续校验，
+     * 避免在 SmartDNS 彻底起不来时把整个 CI 任务卡死
+     */
+    private int healthCheckMaxWaitSeconds = 600;
 
     // 【已移除】原本地磁盘缓存配置（cacheEnabled/cachePath/cacheTtlHours/invalidCacheTtlHours）。
     // 校验结论缓存改由 DNS 服务器（本地 SmartDNS sidecar）自身承担：只要 servers 指向的是带持久化
