@@ -48,7 +48,7 @@ application:
     enabled: true
     timeout: 3                      #单次查询超时(秒)，同一域名对所有服务器是并发查询的
     retries: 1                      #首轮全部失败后，额外重试的轮次数
-    max-concurrent-queries: 300    #同时在飞的域名校验数，异步IO不占线程，可以设得比原来大一个数量级
+    max-concurrent-queries: 1000    #同时在飞的域名校验数，异步IO不占线程，可以设得比原来大一个数量级
     check-aaaa: false               #是否额外查询AAAA(IPv6)记录，关闭可把单域名查询数减半，是提速最直接的一步
     max-duration-minutes: 28        #整个校验阶段的硬性时长上限(分钟)，防止拖垮CI的30分钟限制
     progress-log-interval-seconds: 15  #进度日志打印间隔(秒)，避免长时间没有任何输出
@@ -57,7 +57,6 @@ application:
     cache-path: 'rule/dns-cache.txt' #缓存文件(不以.开头，会被现有CI提交步骤自动一并提交、天然跨运行持久化)
     cache-ttl-hours: 168            #有效域名缓存有效期(小时)，拉长到7天，减少重复查询已确认存活的域名
     invalid-cache-ttl-hours: 24     #失效域名缓存有效期(小时)，避免对已确认下线的域名反复真实查询
-    servers:
     servers:
       - '127.0.0.1:5053'  #本地 smartdns 入口，原 6 台公网 DNS 已挪进根目录 smartdns.conf 的上游配置里
   output:
